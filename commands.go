@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 var masterPassword string
@@ -44,6 +46,14 @@ var getCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		service := args[0]
 		username := args[1]
+
+		fmt.Print("Please type your master password: ")
+		bytePassword, err := terminal.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			fmt.Println("Error reading password:", err)
+			return
+		}
+		masterPassword := string(bytePassword)
 
 		pm := NewPasswordManager(masterPassword)
 		password, err := pm.GetPassword(service, username)

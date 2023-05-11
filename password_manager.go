@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"strings"
 )
 
@@ -60,7 +61,15 @@ func (pm *PasswordManager) SavePassword(service, username, password string) erro
 		return err
 	}
 	entry := service + ":" + username + ":" + hex.EncodeToString(encryptedPassword) + "\n"
-	return ioutil.WriteFile("passwords.txt", []byte(entry), 0644)
+	f, err := os.OpenFile("passwords.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err = f.WriteString(entry); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (pm *PasswordManager) GetPassword(service, username string) (string, error) {
@@ -68,7 +77,11 @@ func (pm *PasswordManager) GetPassword(service, username string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	lines := strings.Split(string(data), "\n")
+	decryptedData, err := pm.decrypt(data)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(string(decryptedData), "\n")
 	for _, line := range lines {
 		parts := strings.Split(line, ":")
 		if len(parts) < 3 {
@@ -94,7 +107,11 @@ func (pm *PasswordManager) DeletePassword(service, username string) error {
 	if err != nil {
 		return err
 	}
-	lines := strings.Split(string(data), "\n")
+	decryptedData, err := pm.decrypt(data)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(decryptedData), "\n")
 	var newLines []string
 	for _, line := range lines {
 		parts := strings.Split(line, ":")
@@ -107,5 +124,9 @@ func (pm *PasswordManager) DeletePassword(service, username string) error {
 		}
 		newLines = append(newLines, line)
 	}
-	return ioutil.WriteFile("passwords.txt", []byte(strings.Join(newLines, "\n")), 0644)
+	newData, err := pm.encrypt([]byte(strings.Join(newLines, "\n")))
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile("passwords.txt", newData, 0644)
 }
