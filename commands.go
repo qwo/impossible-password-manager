@@ -9,7 +9,7 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 )
 
-var masterPassword string
+var masterPassword, filePath string
 
 var rootCmd = &cobra.Command{
 	Use:   "mypasswordmanager",
@@ -17,6 +17,12 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// TODO: Prompt the user for the master password
 		masterPassword = "myMasterPassword"
+
+		// Check for the file-path flag
+		if filePath == "" {
+			// Use a default file path if the flag is not set
+			filePath = "pm_vault"
+		}
 	},
 }
 
@@ -29,8 +35,12 @@ var addCmd = &cobra.Command{
 		username := args[1]
 		password := args[2]
 
-		pm := NewPasswordManager(masterPassword)
-		err := pm.SavePassword(service, username, password)
+		pm, err := NewPasswordManager(masterPassword, "vault.file")
+		if err != nil {
+			fmt.Println("Error initializing password manager:", err)
+			return
+		}
+		err = pm.SavePassword(service, username, password)
 		if err != nil {
 			fmt.Println("Error saving password:", err)
 			return
@@ -47,15 +57,11 @@ var getCmd = &cobra.Command{
 		service := args[0]
 		username := args[1]
 
-		fmt.Print("Please type your master password: ")
-		bytePassword, err := terminal.ReadPassword(int(syscall.Stdin))
+		pm, err := NewPasswordManager(masterPassword, "vault.file")
 		if err != nil {
-			fmt.Println("Error reading password:", err)
+			fmt.Println("Error initializing password manager:", err)
 			return
 		}
-		masterPassword := string(bytePassword)
-
-		pm := NewPasswordManager(masterPassword)
 		password, err := pm.GetPassword(service, username)
 		if err != nil {
 			fmt.Println("Error getting password:", err)
@@ -73,8 +79,12 @@ var deleteCmd = &cobra.Command{
 		service := args[0]
 		username := args[1]
 
-		pm := NewPasswordManager(masterPassword)
-		err := pm.DeletePassword(service, username)
+		pm, err := NewPasswordManager(masterPassword, "vault.file")
+		if err != nil {
+			fmt.Println("Error initializing password manager:", err)
+			return
+		}
+		err = pm.DeletePassword(service, username)
 		if err != nil {
 			fmt.Println("Error deleting password:", err)
 			return
@@ -83,8 +93,35 @@ var deleteCmd = &cobra.Command{
 	},
 }
 
+var initCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Initialize a new password vault",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Print("Please type your master password: ")
+		bytePassword, err := terminal.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			fmt.Println("Error reading password:", err)
+			return
+		}
+		masterPassword = string(bytePassword)
+
+		pm, err := NewPasswordManager(masterPassword, filePath)
+		if err != nil {
+			fmt.Println("Error initializing password manager:", err)
+			return
+		}
+		err = pm.InitVault()
+		if err != nil {
+			fmt.Println("Error initializing vault:", err)
+			return
+		}
+		fmt.Println("Vault initialized successfully")
+	},
+}
+
 func init() {
-	rootCmd.AddCommand(addCmd, getCmd, deleteCmd)
+	rootCmd.AddCommand(addCmd, getCmd, deleteCmd, initCmd)
+	rootCmd.PersistentFlags().StringVar(&filePath, "file-path", "", "Path to the password vault file")
 }
 
 func Execute() {

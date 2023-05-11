@@ -5,7 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
+	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -14,10 +14,35 @@ import (
 
 type PasswordManager struct {
 	masterPassword string
+	vaultPath      string
+	data           []byte
 }
 
-func NewPasswordManager(masterPassword string) *PasswordManager {
-	return &PasswordManager{masterPassword: masterPassword}
+func NewPasswordManager(masterPassword, vaultPath string) (*PasswordManager, error) {
+	encryptedData, err := ioutil.ReadFile(vaultPath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	pm := &PasswordManager{
+		masterPassword: masterPassword,
+		vaultPath:      vaultPath,
+	}
+	if err == nil {
+		pm.data, err = pm.decrypt(encryptedData)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return pm, nil
+}
+
+func (pm *PasswordManager) InitVault() error {
+	// Create an empty, encrypted file
+	encryptedData, err := pm.encrypt([]byte{})
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(pm.vaultPath, encryptedData, 0644)
 }
 
 func (pm *PasswordManager) encrypt(data []byte) ([]byte, error) {
@@ -45,7 +70,7 @@ func (pm *PasswordManager) decrypt(ciphertext []byte) ([]byte, error) {
 	}
 	nonceSize := gcm.NonceSize()
 	if len(ciphertext) < nonceSize {
-		return nil, err
+		return nil, errors.New("ciphertext too short")
 	}
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
@@ -61,27 +86,16 @@ func (pm *PasswordManager) SavePassword(service, username, password string) erro
 		return err
 	}
 	entry := service + ":" + username + ":" + hex.EncodeToString(encryptedPassword) + "\n"
-	f, err := os.OpenFile("passwords.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	pm.data = append(pm.data, []byte(entry)...)
+	encryptedData, err := pm.encrypt(pm.data)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	if _, err = f.WriteString(entry); err != nil {
-		return err
-	}
-	return nil
+	return ioutil.WriteFile(pm.vaultPath, encryptedData, 0644)
 }
 
 func (pm *PasswordManager) GetPassword(service, username string) (string, error) {
-	data, err := ioutil.ReadFile("passwords.txt")
-	if err != nil {
-		return "", err
-	}
-	decryptedData, err := pm.decrypt(data)
-	if err != nil {
-		return "", err
-	}
-	lines := strings.Split(string(decryptedData), "\n")
+	lines := strings.Split(string(pm.data), "\n")
 	for _, line := range lines {
 		parts := strings.Split(line, ":")
 		if len(parts) < 3 {
@@ -99,34 +113,27 @@ func (pm *PasswordManager) GetPassword(service, username string) (string, error)
 			return string(decryptedPassword), nil
 		}
 	}
-	return "", fmt.Errorf("password not found")
+	return "", errors.New("password not found")
 }
 
 func (pm *PasswordManager) DeletePassword(service, username string) error {
-	data, err := ioutil.ReadFile("passwords.txt")
-	if err != nil {
-		return err
-	}
-	decryptedData, err := pm.decrypt(data)
-	if err != nil {
-		return err
-	}
-	lines := strings.Split(string(decryptedData), "\n")
-	var newLines []string
-	for _, line := range lines {
+	lines := strings.Split(string(pm.data), "\n")
+	for i, line := range lines {
 		parts := strings.Split(line, ":")
 		if len(parts) < 3 {
 			continue
 		}
 		if parts[0] == service && parts[1] == username {
-			// Skip this line
-			continue
+			// Remove the entry from the data
+			lines = append(lines[:i], lines[i+1:]...)
+			pm.data = []byte(strings.Join(lines, "\n"))
+			// Write the updated data back to the file
+			encryptedData, err := pm.encrypt(pm.data)
+			if err != nil {
+				return err
+			}
+			return ioutil.WriteFile(pm.vaultPath, encryptedData, 0644)
 		}
-		newLines = append(newLines, line)
 	}
-	newData, err := pm.encrypt([]byte(strings.Join(newLines, "\n")))
-	if err != nil {
-		return err
-	}
-	return ioutil.WriteFile("passwords.txt", newData, 0644)
+	return errors.New("password not found")
 }
