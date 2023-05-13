@@ -104,12 +104,12 @@ var initCmd = &cobra.Command{
 			return
 		}
 		masterPassword = string(bytePassword)
-
 		pm, err := NewPasswordManager(masterPassword, filePath)
 		if err != nil {
 			fmt.Println("Error initializing password manager:", err)
 			return
 		}
+		// pm := NewEmptyPasswordManager(masterPassword, filePath)
 		err = pm.InitVault()
 		if err != nil {
 			fmt.Println("Error initializing vault:", err)

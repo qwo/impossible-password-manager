@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -46,7 +47,11 @@ func (pm *PasswordManager) InitVault() error {
 }
 
 func (pm *PasswordManager) encrypt(data []byte) ([]byte, error) {
-	block, _ := aes.NewCipher([]byte(pm.masterPassword))
+	block, err := aes.NewCipher([]byte(pm.masterPassword)) /// handle Error
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, err
@@ -136,4 +141,12 @@ func (pm *PasswordManager) DeletePassword(service, username string) error {
 		}
 	}
 	return errors.New("password not found")
+}
+
+func NewEmptyPasswordManager(masterPassword, vaultPath string) *PasswordManager {
+	return &PasswordManager{
+		masterPassword: masterPassword,
+		vaultPath:      vaultPath,
+		data:           []byte{},
+	}
 }
