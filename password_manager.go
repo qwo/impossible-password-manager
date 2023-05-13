@@ -49,7 +49,7 @@ func (pm *PasswordManager) InitVault() error {
 func (pm *PasswordManager) encrypt(data []byte) ([]byte, error) {
 	block, err := aes.NewCipher([]byte(pm.masterPassword)) /// handle Error
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("\nissue hashing password", err)
 		return nil, err
 	}
 	gcm, err := cipher.NewGCM(block)
