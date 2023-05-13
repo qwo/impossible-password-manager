@@ -1,0 +1,47 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "go build -v ./...",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "silent"
+            },
+            "problemMatcher": {
+                "base": "$go",
+                "fileLocation": "absolute"
+            }
+        },
+        {
+            "label": "test",
+            "type": "shell",
+            "command": "go test -v ./...",
+            "group": "test",
+            "presentation": {
+                "reveal": "silent"
+            },
+            "problemMatcher": {
+                "base": "$go",
+                "fileLocation": "absolute"
+            }
+        },
+        {
+            "label": "coverage",
+            "type": "shell",
+            "command": "go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out",
+            "group": "test",
+            "presentation": {
+                "reveal": "silent"
+            },
+            "problemMatcher": {
+                "base": "$go",
+                "fileLocation": "absolute"
+            }
+        }
+    ]
+}

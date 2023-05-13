@@ -1,0 +1,7 @@
+{
+    "files.autoSave": "onFocusChange",
+    "editor.formatOnSave": true,
+    "go.formatTool": "goimports",
+    "go.testOnSave": true,
+    "go.coverOnSave": true
+}
