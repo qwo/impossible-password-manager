@@ -4,54 +4,103 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"encoding/hex"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"os"
-	"strings"
+	"sync"
 )
 
+// PasswordManager represents a password manager.
 type PasswordManager struct {
 	masterPassword string
 	vaultPath      string
-	data           []byte
+	passwords      map[string]map[string]string
+	mu             sync.RWMutex
 }
 
+// NewPasswordManager creates a new instance of PasswordManager.
 func NewPasswordManager(masterPassword, vaultPath string) (*PasswordManager, error) {
-	encryptedData, err := ioutil.ReadFile(vaultPath)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	pm := &PasswordManager{
+	return &PasswordManager{
 		masterPassword: masterPassword,
 		vaultPath:      vaultPath,
-	}
-	if err == nil {
-		pm.data, err = pm.decrypt(encryptedData)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return pm, nil
+		passwords:      make(map[string]map[string]string),
+	}, nil
 }
 
+// InitVault initializes the password vault.
 func (pm *PasswordManager) InitVault() error {
-	// Create an empty, encrypted file
-	encryptedData, err := pm.encrypt([]byte{})
-	if err != nil {
-		return err
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	// Check if the vault file already exists
+	_, err := ioutil.ReadFile(pm.vaultPath)
+	if err == nil {
+		return fmt.Errorf("vault file already exists")
 	}
-	return ioutil.WriteFile(pm.vaultPath, encryptedData, 0644)
+
+	// Create an empty vault
+	return pm.saveVault()
+}
+
+// SavePassword saves a password for a given service and username.
+func (pm *PasswordManager) SavePassword(service, username, password string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	// Check if the website exists in the password manager
+	websiteData, ok := pm.passwords[service]
+	if !ok {
+		// Website does not exist, create a new inner map for the website
+		websiteData = make(map[string]string)
+		pm.passwords[service] = websiteData
+	}
+
+	// Save the password for the user
+	websiteData[username] = password
+
+	return pm.saveVault()
+}
+
+// GetPassword retrieves a password for a given service and username.
+func (pm *PasswordManager) GetPassword(service, username string) (string, error) {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	// Check if the website exists in the password manager
+	websiteData, ok := pm.passwords[service]
+	if !ok {
+		return "", fmt.Errorf("password not found")
+	}
+
+	// Retrieve the password for the user
+	password, ok := websiteData[username]
+	if !ok {
+		return "", fmt.Errorf("password not found")
+	}
+
+	return password, nil
+}
+
+// DeletePassword deletes a password for a given service and username.
+func (pm *PasswordManager) DeletePassword(service, username string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	// Check if the website exists in the password manager
+	websiteData, ok := pm.passwords[service]
+	if !ok {
+		return fmt.Errorf("password not found")
+	}
+
+	// Delete the password for the user
+	delete(websiteData, username)
+
+	return pm.saveVault()
 }
 
 func (pm *PasswordManager) encrypt(data []byte) ([]byte, error) {
-	block, err := aes.NewCipher([]byte(pm.masterPassword)) /// handle Error
-	if err != nil {
-		fmt.Println("\nissue hashing password", err)
-		return nil, err
-	}
+	block, _ := aes.NewCipher([]byte(pm.masterPassword))
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, err
@@ -75,7 +124,7 @@ func (pm *PasswordManager) decrypt(ciphertext []byte) ([]byte, error) {
 	}
 	nonceSize := gcm.NonceSize()
 	if len(ciphertext) < nonceSize {
-		return nil, errors.New("ciphertext too short")
+		return nil, err
 	}
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
@@ -85,68 +134,37 @@ func (pm *PasswordManager) decrypt(ciphertext []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-func (pm *PasswordManager) SavePassword(service, username, password string) error {
-	encryptedPassword, err := pm.encrypt([]byte(password))
+// saveVault saves the password vault to the vault file.
+func (pm *PasswordManager) saveVault() error {
+	data, err := json.Marshal(pm.passwords)
 	if err != nil {
 		return err
 	}
-	entry := service + ":" + username + ":" + hex.EncodeToString(encryptedPassword) + "\n"
-	pm.data = append(pm.data, []byte(entry)...)
-	encryptedData, err := pm.encrypt(pm.data)
+
+	encryptedData, err := pm.encrypt(data)
 	if err != nil {
 		return err
 	}
+
 	return ioutil.WriteFile(pm.vaultPath, encryptedData, 0644)
 }
 
-func (pm *PasswordManager) GetPassword(service, username string) (string, error) {
-	lines := strings.Split(string(pm.data), "\n")
-	for _, line := range lines {
-		parts := strings.Split(line, ":")
-		if len(parts) < 3 {
-			continue
-		}
-		if parts[0] == service && parts[1] == username {
-			encryptedPassword, err := hex.DecodeString(parts[2])
-			if err != nil {
-				return "", err
-			}
-			decryptedPassword, err := pm.decrypt(encryptedPassword)
-			if err != nil {
-				return "", err
-			}
-			return string(decryptedPassword), nil
-		}
+// loadVault loads the password vault from the vault file.
+func (pm *PasswordManager) loadVault() error {
+	data, err := ioutil.ReadFile(pm.vaultPath)
+	if err != nil {
+		return err
 	}
-	return "", errors.New("password not found")
-}
 
-func (pm *PasswordManager) DeletePassword(service, username string) error {
-	lines := strings.Split(string(pm.data), "\n")
-	for i, line := range lines {
-		parts := strings.Split(line, ":")
-		if len(parts) < 3 {
-			continue
-		}
-		if parts[0] == service && parts[1] == username {
-			// Remove the entry from the data
-			lines = append(lines[:i], lines[i+1:]...)
-			pm.data = []byte(strings.Join(lines, "\n"))
-			// Write the updated data back to the file
-			encryptedData, err := pm.encrypt(pm.data)
-			if err != nil {
-				return err
-			}
-			return ioutil.WriteFile(pm.vaultPath, encryptedData, 0644)
-		}
+	decryptedData, err := decrypt(data, pm.masterPassword)
+	if err != nil {
+		return err
 	}
-	return errors.New("password not found")
-}
 
-func NewEmptyPasswordManager(masterPassword, vaultPath string) *PasswordManager {
-	return &PasswordManager{
-		masterPassword: masterPassword,
-		vaultPath:      vaultPath,
-		data:           []byte{},
+	err = json.Unmarshal(decryptedData, &pm.passwords)
+	if err != nil {
+		return err
 	}
+
+	return nil
 }

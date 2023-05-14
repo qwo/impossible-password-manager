@@ -1,14 +1,28 @@
 package main
 
 import (
+	"fmt"
+	"io/ioutil"
 	"log"
+	"math/rand"
+	"os"
 	"testing"
+	"time"
 )
+
+func NewEmptyPasswordManager(masterPassword, vaultPath string) *PasswordManager {
+	return &PasswordManager{
+		masterPassword: masterPassword,
+		vaultPath:      vaultPath,
+		passwords:      make(map[string]map[string]string),
+	}
+}
 
 func TestEncryptDecrypt(t *testing.T) {
 	masterPassword := "0123456789ABCDEF"
-	pm := NewEmptyPasswordManager(masterPassword, "pm_vault_test")
-
+	vaultName := "pm_vault_test"
+	pm := NewEmptyPasswordManager(masterPassword, vaultName)
+	defer os.Remove(vaultName)
 	data := []byte(masterPassword)
 
 	encryptedData, err := pm.encrypt(data)
@@ -28,8 +42,9 @@ func TestEncryptDecrypt(t *testing.T) {
 
 func TestSaveGetDeletePassword_first(t *testing.T) {
 	masterPassword := "0123456789ABCDEF"
-	pm := NewEmptyPasswordManager(masterPassword, "pm_vault_test")
-
+	vaultName := "pm_vault_test"
+	pm := NewEmptyPasswordManager(masterPassword, vaultName)
+	defer os.Remove(vaultName)
 	service := "google.com"
 	username := "myusername"
 	password := "mypassword"
@@ -152,10 +167,34 @@ type TestPasswordManagerState struct {
 	Passwords      map[string]map[string]string
 }
 
-func setupTestPasswordManager(state TestPasswordManagerState) *PasswordManager {
-	pm := NewEmptyPasswordManager(state.MasterPassword, state.VaultPath)
+func randomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-	err := pm.InitVault()
+	rand.Seed(time.Now().UnixNano())
+
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[rand.Intn(len(charset))]
+	}
+
+	return string(b)
+}
+
+func setupTestPasswordManager(state TestPasswordManagerState) (*PasswordManager, func()) {
+	// Create a temporary vault file
+	tempVaultFile, err := ioutil.TempFile("", "vault_*.json")
+	if err != nil {
+		log.Fatalf("Error creating temporary vault file: %v", err)
+	}
+	defer os.Remove(tempVaultFile.Name()) // Clean up the temporary file
+
+	// Generate the VaultPath suffix
+	vaultPathSuffix := fmt.Sprintf("_%s", randomString(8))
+
+	// Create the PasswordManager with the temporary vault file and generated suffix
+	vaultPath := state.VaultPath + vaultPathSuffix
+	pm := NewEmptyPasswordManager(state.MasterPassword, vaultPath)
+
 	if err != nil {
 		log.Fatalf("Error initializing vault: %v", err)
 	}
@@ -170,8 +209,18 @@ func setupTestPasswordManager(state TestPasswordManagerState) *PasswordManager {
 		}
 	}
 
-	return pm
+	// Cleanup function to remove the vault file
+	cleanup := func() {
+		err := os.Remove(vaultPath)
+		if err != nil {
+			log.Fatalf("Error removing vault file: %v", err)
+		}
+	}
+
+	// Use defer to automatically clean up the vault file
+	return pm, cleanup
 }
+
 func TestSaveGetDeletePassword(t *testing.T) {
 	state := TestPasswordManagerState{
 		MasterPassword: "0123456789ABCDEF",
@@ -192,7 +241,8 @@ func TestSaveGetDeletePassword(t *testing.T) {
 		},
 	}
 
-	pm := setupTestPasswordManager(state)
+	pm, cleanup := setupTestPasswordManager(state)
+	defer cleanup()
 
 	// Test SavePassword
 	service := "google.com"
