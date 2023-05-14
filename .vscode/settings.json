@@ -3,5 +3,5 @@
     "editor.formatOnSave": true,
     "go.formatTool": "goimports",
     "go.testOnSave": true,
-    "go.coverOnSave": true
+    "go.coverOnSave": false
 }

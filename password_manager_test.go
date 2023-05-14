@@ -230,7 +230,6 @@ func TestSaveGetDeletePassword(t *testing.T) {
 		VaultPath:      "pm_vault_test",
 		Passwords: map[string]map[string]string{
 			"google.com": {
-				"john": "password1",
 				"jane": "password2",
 			},
 			"facebook.com": {
@@ -278,5 +277,39 @@ func TestSaveGetDeletePassword(t *testing.T) {
 	_, err = pm.GetPassword(service, username)
 	if err == nil {
 		t.Errorf("Password was not deleted successfully")
+	}
+}
+
+func TestEdgeCases(t *testing.T) {
+	state := TestPasswordManagerState{
+		MasterPassword: "0123456789ABCDEF",
+		VaultPath:      "pm_vault_test",
+		Passwords: map[string]map[string]string{
+			"google.com": {
+				"jane": "password2",
+			},
+			"facebook.com": {
+				"john": "password3",
+				"jane": "password4",
+			},
+			"twitter.com": {
+				"john": "password5",
+				"jane": "password6",
+			},
+		},
+	}
+	pm, cleanup := setupTestPasswordManager(state)
+	defer cleanup()
+
+	// Test DeletePassword
+	/// Should not throw if user and service don't exist
+	// Test SavePassword
+	service := "google.com"
+	username := "billy"
+	// password := "newpassword"
+
+	err := pm.DeletePassword(service, username)
+	if err != nil {
+		t.Fatalf("Error deleting password: %v", err)
 	}
 }
