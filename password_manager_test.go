@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"testing"
 )
 
@@ -25,7 +26,7 @@ func TestEncryptDecrypt(t *testing.T) {
 	}
 }
 
-func TestSaveGetDeletePassword(t *testing.T) {
+func TestSaveGetDeletePassword_first(t *testing.T) {
 	masterPassword := "0123456789ABCDEF"
 	pm := NewEmptyPasswordManager(masterPassword, "pm_vault_test")
 
@@ -140,5 +141,89 @@ func TestSaveGetDeletePassword_Multiple(t *testing.T) {
 				t.Errorf("Password for service '%s' and username '%s' still exists after deletion", service, username)
 			}
 		}
+	}
+}
+
+///** alternative stub style
+
+type TestPasswordManagerState struct {
+	MasterPassword string
+	VaultPath      string
+	Passwords      map[string]map[string]string
+}
+
+func setupTestPasswordManager(state TestPasswordManagerState) *PasswordManager {
+	pm := NewEmptyPasswordManager(state.MasterPassword, state.VaultPath)
+
+	err := pm.InitVault()
+	if err != nil {
+		log.Fatalf("Error initializing vault: %v", err)
+	}
+
+	// Save passwords
+	for service, userData := range state.Passwords {
+		for username, password := range userData {
+			err := pm.SavePassword(service, username, password)
+			if err != nil {
+				log.Fatalf("Error saving password: %v", err)
+			}
+		}
+	}
+
+	return pm
+}
+func TestSaveGetDeletePassword(t *testing.T) {
+	state := TestPasswordManagerState{
+		MasterPassword: "0123456789ABCDEF",
+		VaultPath:      "pm_vault_test",
+		Passwords: map[string]map[string]string{
+			"google.com": {
+				"john": "password1",
+				"jane": "password2",
+			},
+			"facebook.com": {
+				"john": "password3",
+				"jane": "password4",
+			},
+			"twitter.com": {
+				"john": "password5",
+				"jane": "password6",
+			},
+		},
+	}
+
+	pm := setupTestPasswordManager(state)
+
+	// Test SavePassword
+	service := "google.com"
+	username := "john"
+	password := "newpassword"
+
+	err := pm.SavePassword(service, username, password)
+	if err != nil {
+		t.Fatalf("Error saving password: %v", err)
+	}
+
+	// Test GetPassword
+	retrievedPassword, err := pm.GetPassword(service, username)
+	if err != nil {
+		t.Fatalf("Error getting password: %v", err)
+	}
+
+	if retrievedPassword != password {
+		// log.Fatalf(retrievedPassword, err)
+		t.Errorf("Retrieved password does not match the expected value")
+	}
+
+	// Test DeletePassword
+	err = pm.DeletePassword(service, username)
+	if err != nil {
+		t.Fatalf("Error deleting password: %v", err)
+	}
+
+	// Verify that password was deleted
+	_, err = pm.GetPassword(service, username)
+	if err == nil {
+		t.Errorf("Password was not deleted successfully")
 	}
 }
