@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -10,20 +9,35 @@ import (
 	"time"
 )
 
-func NewEmptyPasswordManager(masterPassword, vaultPath string) *PasswordManager {
+func NewEmptyPasswordManager(masterPassword, vaultPath string) (*PasswordManager, func()) {
+	// Cleanup function to remove the vault file
+	cleanup := func() {
+		err := os.Remove(vaultPath)
+		if err != nil {
+			log.Fatalf("Error removing vault file: %v", err)
+		}
+	}
 	return &PasswordManager{
 		masterPassword: masterPassword,
 		vaultPath:      vaultPath,
 		passwords:      make(map[string]map[string]string),
-	}
+	}, cleanup
 }
 
 func TestEncryptDecrypt(t *testing.T) {
+
+	// No cleanup required because no vault initialization
 	masterPassword := "0123456789ABCDEF"
 	vaultName := "pm_vault_test"
-	pm := NewEmptyPasswordManager(masterPassword, vaultName)
-	defer os.Remove(vaultName)
+	pm, _ := NewEmptyPasswordManager(masterPassword, vaultName)
+	// defer cleanup()
 	data := []byte(masterPassword)
+
+	// some sort of bug where a vault needs to be made in order to be cleanedup?
+	// err := pm.InitVault()
+	// if err != nil {
+	// 	t.Fatalf("Error initializing vault: %v", err)
+	// }
 
 	encryptedData, err := pm.encrypt(data)
 	if err != nil {
@@ -43,8 +57,8 @@ func TestEncryptDecrypt(t *testing.T) {
 func TestSaveGetDeletePassword_first(t *testing.T) {
 	masterPassword := "0123456789ABCDEF"
 	vaultName := "pm_vault_test"
-	pm := NewEmptyPasswordManager(masterPassword, vaultName)
-	defer os.Remove(vaultName)
+	pm, cleanup := NewEmptyPasswordManager(masterPassword, vaultName)
+	defer cleanup()
 	service := "google.com"
 	username := "myusername"
 	password := "mypassword"
@@ -81,8 +95,9 @@ func TestSaveGetDeletePassword_first(t *testing.T) {
 
 func TestSaveGetDeletePassword_Multiple(t *testing.T) {
 	masterPassword := "0123456789ABCDEF"
-	pm := NewEmptyPasswordManager(masterPassword, "pm_vault_test")
-
+	vaultName := "pm_vault_test"
+	pm, cleanup := NewEmptyPasswordManager(masterPassword, vaultName)
+	defer cleanup()
 	err := pm.InitVault()
 	if err != nil {
 		t.Fatalf("Error initializing vault: %v", err)
@@ -182,22 +197,18 @@ func randomString(length int) string {
 
 func setupTestPasswordManager(state TestPasswordManagerState) (*PasswordManager, func()) {
 	// Create a temporary vault file
-	tempVaultFile, err := ioutil.TempFile("", "vault_*.json")
-	if err != nil {
-		log.Fatalf("Error creating temporary vault file: %v", err)
-	}
-	defer os.Remove(tempVaultFile.Name()) // Clean up the temporary file
+	// tempVaultFile, err := ioutil.TempFile("", "vault_*.json")
+	// if err != nil {
+	// 	log.Fatalf("Error creating temporary vault file: %v", err)
+	// }
+	// defer os.Remove(tempVaultFile.Name()) // Clean up the temporary file
 
-	// Generate the VaultPath suffix
+	// // Generate the VaultPath suffix
 	vaultPathSuffix := fmt.Sprintf("_%s", randomString(8))
 
 	// Create the PasswordManager with the temporary vault file and generated suffix
 	vaultPath := state.VaultPath + vaultPathSuffix
-	pm := NewEmptyPasswordManager(state.MasterPassword, vaultPath)
-
-	if err != nil {
-		log.Fatalf("Error initializing vault: %v", err)
-	}
+	pm, cleanup := NewEmptyPasswordManager(state.MasterPassword, vaultPath)
 
 	// Save passwords
 	for service, userData := range state.Passwords {
@@ -206,14 +217,6 @@ func setupTestPasswordManager(state TestPasswordManagerState) (*PasswordManager,
 			if err != nil {
 				log.Fatalf("Error saving password: %v", err)
 			}
-		}
-	}
-
-	// Cleanup function to remove the vault file
-	cleanup := func() {
-		err := os.Remove(vaultPath)
-		if err != nil {
-			log.Fatalf("Error removing vault file: %v", err)
 		}
 	}
 
